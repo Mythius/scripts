@@ -1,2 +1,2 @@
 @echo off
-node C:\Github\scripts\gen_pass.js
+node C:\Github\scripts\gen_pass.js %1
