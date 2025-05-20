@@ -32,12 +32,6 @@ if [ ! -f "$shfile" ]; then
     exit 1
 fi
 
-if [ ! -x "$shfile" ]; then
-    echo "Error: Script file '$shfile' is not executable."
-    echo "Run: chmod +x $shfile"
-    exit 1
-fi
-
 # Check if service already exists
 if [ -f "$path" ]; then
     echo "Warning: Service '$name' already exists at $path."
