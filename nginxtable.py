@@ -3,11 +3,11 @@
 import os
 import re
 from urllib.parse import urlparse
+import subprocess
 
 NGINX_DIR = "/etc/nginx/sites-enabled"
 
 def extract_server_blocks(config_text):
-    """Extract individual server blocks from a full nginx config file."""
     blocks = []
     stack = []
     start_idx = None
@@ -28,7 +28,6 @@ def extract_server_blocks(config_text):
     return blocks
 
 def parse_server_block(block_lines):
-    """Parse a single server block for server_name and proxy_pass."""
     server_name = None
     proxy_passes = []
 
@@ -44,19 +43,51 @@ def parse_server_block(block_lines):
                 proxy_passes.append(match.group(1).strip())
 
     if not proxy_passes:
-        return []  # Ignore blocks without reverse proxying
-
+        return []
     return [(server_name or "", proxy) for proxy in proxy_passes]
 
 def extract_port(url):
-    """Extract port from proxy_pass URL; fallback to default ports."""
     try:
         parsed = urlparse(url)
         if parsed.port:
             return parsed.port
         return 80 if parsed.scheme == "http" else 443
     except Exception:
-        return float('inf')  # fallback for malformed URLs
+        return None
+
+def get_process_info_for_port(port):
+    try:
+        output = subprocess.check_output(
+            ["lsof", "-i", f"TCP:{port}", "-sTCP:LISTEN", "-P", "-n"],
+            stderr=subprocess.DEVNULL
+        ).decode()
+        lines = output.strip().split('\n')
+        if len(lines) < 2:
+            return ('unknown', 'unknown')
+        # Parse first match (skip header)
+        parts = lines[1].split()
+        if len(parts) >= 2:
+            process_name = parts[0].lower()
+            pid = parts[1]
+            cwd_path = f"/proc/{pid}/cwd"
+            try:
+                cwd = os.readlink(cwd_path)
+            except Exception:
+                cwd = 'unknown'
+            # Normalize name
+            if 'node' in process_name:
+                process_type = 'node'
+            elif 'python' in process_name:
+                process_type = 'python'
+            elif 'apache' in process_name or 'httpd' in process_name:
+                process_type = 'apache'
+            else:
+                process_type = process_name
+            return (process_type, cwd)
+    except subprocess.CalledProcessError:
+        pass
+    return ('none', 'none')
+
 
 def process_file(path):
     with open(path, 'r') as f:
@@ -67,7 +98,6 @@ def process_file(path):
             entries.extend(parse_server_block(block))
         return entries
 
-# Main
 def main():
     try:
         files = [os.path.join(NGINX_DIR, f) for f in os.listdir(NGINX_DIR)
@@ -82,12 +112,21 @@ def main():
     for file_path in files:
         all_entries.extend(process_file(file_path))
 
-    # Sort by extracted port number
-    all_entries.sort(key=lambda entry: extract_port(entry[1]))
-
-    print("name\tforward_location")
+    enriched = []
     for name, location in all_entries:
-        print(f"{name}\t{location}")
+        port = extract_port(location)
+        if port:
+            process_type, cwd = get_process_info_for_port(port)
+        else:
+            process_type, cwd = 'none', 'none'
+        enriched.append((name, location, port, process_type, cwd))
+
+    # Sort by port
+    enriched.sort(key=lambda x: x[2] if x[2] is not None else 99999)
+
+    print("name\tforward_location\tprocess_type\tcwd")
+    for name, location, _, process_type, cwd in enriched:
+        print(f"{name}\t{location}\t{process_type}\t{cwd}")
 
 if __name__ == "__main__":
     main()
