@@ -4,6 +4,8 @@ import os
 import re
 from urllib.parse import urlparse
 import subprocess
+import sys
+import json
 
 NGINX_DIR = "/etc/nginx/sites-enabled"
 
@@ -137,7 +139,21 @@ def main():
     print("-" * (name_width + location_width + process_type_width + cwd_width + 6))
 
     for name, location, _, process_type, cwd in enriched:
-        print(row_fmt.format(name, location, process_type, cwd))
+        if "--json" in sys.argv:
+            # Output all enriched rows as a JSON array of dicts
+            json_rows = [
+            {
+                "name": name,
+                "forward_location": location,
+                "process_type": process_type,
+                "cwd": cwd
+            }
+            for name, location, _, process_type, cwd in enriched
+            ]
+            print(json.dumps(json_rows, indent=2))
+            break
+        else:
+            print(row_fmt.format(name, location, process_type, cwd))
 
 if __name__ == "__main__":
     main()
