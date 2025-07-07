@@ -124,9 +124,20 @@ def main():
     # Sort by port
     enriched.sort(key=lambda x: x[2] if x[2] is not None else 99999)
 
-    print("name\tforward_location\tprocess_type\tcwd")
+    # Calculate column widths
+    name_width = max(len("name"), *(len(str(row[0])) for row in enriched))
+    location_width = max(len("forward_location"), *(len(str(row[1])) for row in enriched))
+    process_type_width = max(len("process_type"), *(len(str(row[3])) for row in enriched))
+    cwd_width = max(len("cwd"), *(len(str(row[4])) for row in enriched))
+
+    header_fmt = f"{{:<{name_width}}}  {{:<{location_width}}}  {{:<{process_type_width}}}  {{:<{cwd_width}}}"
+    row_fmt = header_fmt
+
+    print(header_fmt.format("name", "forward_location", "process_type", "cwd"))
+    print("-" * (name_width + location_width + process_type_width + cwd_width + 6))
+
     for name, location, _, process_type, cwd in enriched:
-        print(f"{name}\t{location}\t{process_type}\t{cwd}")
+        print(row_fmt.format(name, location, process_type, cwd))
 
 if __name__ == "__main__":
     main()
