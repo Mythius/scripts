@@ -135,6 +135,10 @@ def main():
     header_fmt = f"{{:<{name_width}}}  {{:<{location_width}}}  {{:<{process_type_width}}}  {{:<{cwd_width}}}"
     row_fmt = header_fmt
 
+    if "--json" in sys.argv:
+        print(header_fmt.format("name", "forward_location", "process_type", "cwd"))
+        print("-" * (name_width + location_width + process_type_width + cwd_width + 6))
+
 
     for name, location, _, process_type, cwd in enriched:
         if "--json" in sys.argv:
@@ -151,8 +155,6 @@ def main():
             print(json.dumps(json_rows, indent=2))
             break
         else:
-            print(header_fmt.format("name", "forward_location", "process_type", "cwd"))
-            print("-" * (name_width + location_width + process_type_width + cwd_width + 6))
             print(row_fmt.format(name, location, process_type, cwd))
 
 if __name__ == "__main__":
