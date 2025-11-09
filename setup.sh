@@ -13,6 +13,6 @@ cd ~/scripts
 cat > "$HOME/videostream/server.sh" << 'EOF'
 cd /home/matthias/videostream
 EOF
-which node >> "$HOME/videostream/server.sh"
-echo " server.js" >> "$HOME/videostream/server.sh"
+printf "%s server.js\n" "$(which node)" >> "$HOME/videostream/server.sh"
 sudo bash createServiceFile.sh stream "$HOME/videostream/server.sh"
+echo "http://$(hostname -I | awk '{print $1}'):3000"
