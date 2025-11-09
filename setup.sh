@@ -10,8 +10,8 @@ cd videostream
 npm i
 cd ~/scripts
 #APPEND HERE
-cat > "$HOME/videostream/server.sh" << 'EOF'
-cd /home/matthias/videostream
+cat > "$HOME/videostream/server.sh" << EOF
+cd $HOME/videostream
 EOF
 printf "%s server.js\n" "$(which node)" >> "$HOME/videostream/server.sh"
 sudo bash createServiceFile.sh stream "$HOME/videostream/server.sh"
