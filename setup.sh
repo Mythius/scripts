@@ -9,7 +9,6 @@ git clone https://github.com/mythius/videostream
 cd videostream
 npm i
 cd ~/scripts
-#APPEND HERE
 cat > "$HOME/videostream/server.sh" << EOF
 cd $HOME/videostream
 EOF
