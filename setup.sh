@@ -1,3 +1,4 @@
+# run as sh setup.sh
 sudo apt install curl 
 curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash 
 export NVM_DIR="$HOME/.nvm"
@@ -7,3 +8,11 @@ cd ~
 git clone https://github.com/mythius/videostream
 cd videostream
 npm i
+cd ~/scripts
+#APPEND HERE
+cat > "$HOME/videostream/server.sh" << 'EOF'
+cd /home/matthias/videostream
+EOF
+which node >> "$HOME/videostream/server.sh"
+echo " server.js" >> "$HOME/videostream/server.sh"
+sudo bash createServiceFile.sh stream "$HOME/videostream/server.sh"
