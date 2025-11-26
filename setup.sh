@@ -14,4 +14,8 @@ cd $HOME/videostream
 EOF
 printf "%s server.js\n" "$(which node)" >> "$HOME/videostream/server.sh"
 sudo bash createServiceFile.sh stream "$HOME/videostream/server.sh"
+sudo bash diskrip/install_dependencies.sh
+sudo systemctl enable ripdisk.service
+sudo systemctl start ripdisk.service
 echo "http://$(hostname -I | awk '{print $1}'):3000"
+echo "Videostream setup complete please put a DVD in the diskreader to begin"
