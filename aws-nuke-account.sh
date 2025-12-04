@@ -197,6 +197,30 @@ delete_in_region() {
         aws lambda delete-function --region "$region" --function-name "$func" 2>/dev/null || true
     done
 
+    # API Gateway REST APIs
+    echo "  - Deleting API Gateway REST APIs..."
+    API_IDS=$(aws apigateway get-rest-apis --region "$region" \
+        --query 'items[].id' --output text 2>/dev/null || true)
+    for api in $API_IDS; do
+        aws apigateway delete-rest-api --region "$region" --rest-api-id "$api" 2>/dev/null || true
+    done
+
+    # API Gateway HTTP APIs (v2)
+    echo "  - Deleting API Gateway HTTP APIs..."
+    HTTP_API_IDS=$(aws apigatewayv2 get-apis --region "$region" \
+        --query 'Items[].ApiId' --output text 2>/dev/null || true)
+    for api in $HTTP_API_IDS; do
+        aws apigatewayv2 delete-api --region "$region" --api-id "$api" 2>/dev/null || true
+    done
+
+    # API Gateway WebSocket APIs
+    echo "  - Deleting API Gateway WebSocket APIs..."
+    WS_API_IDS=$(aws apigatewayv2 get-apis --region "$region" \
+        --query 'Items[?ProtocolType==`WEBSOCKET`].ApiId' --output text 2>/dev/null || true)
+    for api in $WS_API_IDS; do
+        aws apigatewayv2 delete-api --region "$region" --api-id "$api" 2>/dev/null || true
+    done
+
     # ECS Clusters
     echo "  - Deleting ECS clusters..."
     ECS_CLUSTERS=$(aws ecs list-clusters --region "$region" \
@@ -413,101 +437,6 @@ for region in $REGIONS_TO_PROCESS; do
     delete_in_region "$region"
 done
 
-# Global resources (IAM - in any region, typically us-east-1)
-echo -e "${YELLOW}Deleting global resources...${NC}"
-
-# IAM Users
-echo "  - Deleting IAM users..."
-IAM_USERS=$(aws iam list-users --query 'Users[].UserName' --output text 2>/dev/null || true)
-for user in $IAM_USERS; do
-    # Delete access keys
-    ACCESS_KEYS=$(aws iam list-access-keys --user-name "$user" \
-        --query 'AccessKeyMetadata[].AccessKeyId' --output text 2>/dev/null || true)
-    for key in $ACCESS_KEYS; do
-        aws iam delete-access-key --user-name "$user" --access-key-id "$key" 2>/dev/null || true
-    done
-    # Delete login profile
-    aws iam delete-login-profile --user-name "$user" 2>/dev/null || true
-    # Detach policies
-    USER_POLICIES=$(aws iam list-attached-user-policies --user-name "$user" \
-        --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null || true)
-    for policy in $USER_POLICIES; do
-        aws iam detach-user-policy --user-name "$user" --policy-arn "$policy" 2>/dev/null || true
-    done
-    # Delete inline policies
-    INLINE_POLICIES=$(aws iam list-user-policies --user-name "$user" \
-        --query 'PolicyNames[]' --output text 2>/dev/null || true)
-    for policy in $INLINE_POLICIES; do
-        aws iam delete-user-policy --user-name "$user" --policy-name "$policy" 2>/dev/null || true
-    done
-    # Remove from groups
-    USER_GROUPS=$(aws iam list-groups-for-user --user-name "$user" \
-        --query 'Groups[].GroupName' --output text 2>/dev/null || true)
-    for group in $USER_GROUPS; do
-        aws iam remove-user-from-group --user-name "$user" --group-name "$group" 2>/dev/null || true
-    done
-    aws iam delete-user --user-name "$user" 2>/dev/null || true
-done
-
-# IAM Roles
-echo "  - Deleting IAM roles..."
-IAM_ROLES=$(aws iam list-roles --query 'Roles[?!starts_with(RoleName, `AWSServiceRole`)].RoleName' --output text 2>/dev/null || true)
-for role in $IAM_ROLES; do
-    # Detach policies
-    ROLE_POLICIES=$(aws iam list-attached-role-policies --role-name "$role" \
-        --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null || true)
-    for policy in $ROLE_POLICIES; do
-        aws iam detach-role-policy --role-name "$role" --policy-arn "$policy" 2>/dev/null || true
-    done
-    # Delete inline policies
-    INLINE_POLICIES=$(aws iam list-role-policies --role-name "$role" \
-        --query 'PolicyNames[]' --output text 2>/dev/null || true)
-    for policy in $INLINE_POLICIES; do
-        aws iam delete-role-policy --role-name "$role" --policy-name "$policy" 2>/dev/null || true
-    done
-    # Delete instance profiles
-    INSTANCE_PROFILES=$(aws iam list-instance-profiles-for-role --role-name "$role" \
-        --query 'InstanceProfiles[].InstanceProfileName' --output text 2>/dev/null || true)
-    for profile in $INSTANCE_PROFILES; do
-        aws iam remove-role-from-instance-profile --instance-profile-name "$profile" --role-name "$role" 2>/dev/null || true
-        aws iam delete-instance-profile --instance-profile-name "$profile" 2>/dev/null || true
-    done
-    aws iam delete-role --role-name "$role" 2>/dev/null || true
-done
-
-# IAM Groups
-echo "  - Deleting IAM groups..."
-IAM_GROUPS=$(aws iam list-groups --query 'Groups[].GroupName' --output text 2>/dev/null || true)
-for group in $IAM_GROUPS; do
-    # Detach policies
-    GROUP_POLICIES=$(aws iam list-attached-group-policies --group-name "$group" \
-        --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null || true)
-    for policy in $GROUP_POLICIES; do
-        aws iam detach-group-policy --group-name "$group" --policy-arn "$policy" 2>/dev/null || true
-    done
-    # Delete inline policies
-    INLINE_POLICIES=$(aws iam list-group-policies --group-name "$group" \
-        --query 'PolicyNames[]' --output text 2>/dev/null || true)
-    for policy in $INLINE_POLICIES; do
-        aws iam delete-group-policy --group-name "$group" --policy-name "$policy" 2>/dev/null || true
-    done
-    aws iam delete-group --group-name "$group" 2>/dev/null || true
-done
-
-# IAM Policies (customer managed only)
-echo "  - Deleting IAM policies..."
-IAM_POLICIES=$(aws iam list-policies --scope Local \
-    --query 'Policies[].Arn' --output text 2>/dev/null || true)
-for policy in $IAM_POLICIES; do
-    # Delete all non-default versions
-    POLICY_VERSIONS=$(aws iam list-policy-versions --policy-arn "$policy" \
-        --query 'Versions[?IsDefaultVersion==`false`].VersionId' --output text 2>/dev/null || true)
-    for version in $POLICY_VERSIONS; do
-        aws iam delete-policy-version --policy-arn "$policy" --version-id "$version" 2>/dev/null || true
-    done
-    aws iam delete-policy --policy-arn "$policy" 2>/dev/null || true
-done
-
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║           Resource deletion process completed!             ║${NC}"
@@ -516,11 +445,14 @@ echo -e "${GREEN}║  Note: Some resources may take time to fully delete        
 echo -e "${GREEN}║  Check AWS Console to verify all resources are gone        ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${YELLOW}IMPORTANT: You should also check for:${NC}"
-echo "  - Route53 hosted zones and records"
+echo -e "${YELLOW}IMPORTANT: You should also manually check for:${NC}"
+echo "  - Route53 hosted zones and records (costs \$0.50/month per zone)"
 echo "  - CloudFront distributions"
 echo "  - AWS Config"
 echo "  - AWS Backup vaults"
 echo "  - Glacier vaults"
 echo "  - Any resources that failed to delete above"
+echo ""
+echo -e "${GREEN}Note: IAM users, roles, groups, and policies are NOT deleted${NC}"
+echo -e "${GREEN}(they're free and won't incur any charges)${NC}"
 echo ""
