@@ -17,5 +17,6 @@ sudo bash createServiceFile.sh stream "$HOME/videostream/server.sh"
 sudo bash $HOME/videostream/diskrip/install_dependencies.sh
 sudo systemctl enable ripdisk.service
 sudo systemctl start ripdisk.service
+sudo git config --global --add safe.directory $HOME/videostream
 echo "http://$(hostname -I | awk '{print $1}')"
 echo "Videostream setup complete please put a DVD in the diskreader to begin"
