@@ -38,22 +38,36 @@ def get_ram_usage():
         "percent": percent
     }
 
+def get_cpu_usage():
+    percent = psutil.cpu_percent(interval=1)
+    cores = psutil.cpu_count(logical=False)
+    threads = psutil.cpu_count(logical=True)
+    return {
+        "percent": percent,
+        "cores": cores,
+        "threads": threads
+    }
+
 def main():
     as_json = '--json' in sys.argv
     disk = get_biggest_disk_usage()
     ram = get_ram_usage()
+    cpu = get_cpu_usage()
 
     disk_str = f"{format_size(disk['used'])} / {format_size(disk['total'])} ({disk['percent']:.0f}%)"
     ram_str = f"{format_size(ram['used'])} / {format_size(ram['total'])} ({ram['percent']:.0f}%)"
+    cpu_str = f"{cpu['percent']:.0f}% ({cpu['cores']} cores, {cpu['threads']} threads)"
 
     if as_json:
         print(json.dumps({
             "disk": disk_str,
-            "ram": ram_str
+            "ram": ram_str,
+            "cpu": cpu_str
         }))
     else:
         print(f"{'Disk':<8} {disk_str}")
         print(f"{'RAM':<8} {ram_str}")
+        print(f"{'CPU':<8} {cpu_str}")
 
 if __name__ == "__main__":
     main()
