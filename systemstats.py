@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import time
 import shutil
 import psutil
 
@@ -38,8 +39,8 @@ def get_ram_usage():
         "percent": percent
     }
 
-def get_cpu_usage():
-    percent = psutil.cpu_percent(interval=1)
+def get_cpu_usage(interval=1):
+    percent = psutil.cpu_percent(interval=interval)
     cores = psutil.cpu_count(logical=False)
     threads = psutil.cpu_count(logical=True)
     return {
@@ -48,11 +49,10 @@ def get_cpu_usage():
         "threads": threads
     }
 
-def main():
-    as_json = '--json' in sys.argv
+def print_stats(as_json, cpu_interval=1):
     disk = get_biggest_disk_usage()
     ram = get_ram_usage()
-    cpu = get_cpu_usage()
+    cpu = get_cpu_usage(interval=cpu_interval)
 
     disk_str = f"{format_size(disk['used'])} / {format_size(disk['total'])} ({disk['percent']:.0f}%)"
     ram_str = f"{format_size(ram['used'])} / {format_size(ram['total'])} ({ram['percent']:.0f}%)"
@@ -68,6 +68,22 @@ def main():
         print(f"{'Disk':<8} {disk_str}")
         print(f"{'RAM':<8} {ram_str}")
         print(f"{'CPU':<8} {cpu_str}")
+
+def main():
+    as_json = '--json' in sys.argv
+    watch = '--watch' in sys.argv
+
+    if watch:
+        psutil.cpu_percent()  # prime the first reading
+        try:
+            while True:
+                time.sleep(1)
+                os.system('cls' if os.name == 'nt' else 'clear')
+                print_stats(as_json, cpu_interval=None)
+        except KeyboardInterrupt:
+            pass
+    else:
+        print_stats(as_json)
 
 if __name__ == "__main__":
     main()
