@@ -2,20 +2,36 @@
 
 # Function to show usage instructions
 usage() {
-    echo "Usage: $0 <subdomain> <port>"
-    echo "  subdomain - The subdomain for the Nginx configuration (e.g., example.domain.com)"
-    echo "  port      - The port number to proxy traffic to (e.g., 3000)"
+    echo "Usage: $0 <subdomain> <port> [--host <host>]"
+    echo "  subdomain  - The subdomain for the Nginx configuration (e.g., example.domain.com)"
+    echo "  port       - The port number to proxy traffic to (e.g., 3000)"
+    echo "  --host     - The host to proxy to (default: localhost)"
     exit 1
 }
 
-# Ensure exactly two arguments are provided
-if [ "$#" -ne 2 ]; then
+# Ensure at least two arguments are provided
+if [ "$#" -lt 2 ]; then
     echo "Error: Invalid number of arguments!"
     usage
 fi
 
 subdomain="$1"
 port="$2"
+host="localhost"
+
+shift 2
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --host)
+            host="$2"
+            shift 2
+            ;;
+        *)
+            echo "Error: Unknown argument '$1'"
+            usage
+            ;;
+    esac
+done
 
 # Validate subdomain (basic check for a valid domain name format)
 if [[ ! "$subdomain" =~ ^[a-zA-Z0-9.-]+$ ]]; then
@@ -57,7 +73,7 @@ server {
     server_name $subdomain;
 
     location / {
-        proxy_pass http://localhost:$port;
+        proxy_pass http://$host:$port;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
