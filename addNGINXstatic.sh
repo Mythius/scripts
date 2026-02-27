@@ -29,6 +29,16 @@ if [ ! -d "$folder_path" ]; then
     exit 1
 fi
 
+# Ensure Nginx can read the folder and its contents
+echo "Setting permissions on '$folder_path' so Nginx can serve files..."
+chmod -R 755 "$folder_path"
+# Walk up parent directories and ensure execute bit is set for others
+dir="$folder_path"
+while [ "$dir" != "/" ]; do
+    chmod o+x "$dir"
+    dir=$(dirname "$dir")
+done
+
 # Ensure Nginx configuration directory exists
 nginx_config_dir="/etc/nginx/sites-enabled"
 if [ ! -d "$nginx_config_dir" ]; then
