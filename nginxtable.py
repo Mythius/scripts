@@ -32,21 +32,40 @@ def extract_server_blocks(config_text):
 def parse_server_block(block_lines):
     server_name = None
     proxy_passes = []
+    root_dir = None
+    listen_ports = []
 
     for line in block_lines:
-        line = line.strip()
-        if not server_name and line.startswith("server_name"):
-            match = re.match(r"server_name\s+([^;]+);", line)
+        stripped = line.strip()
+        if not server_name and stripped.startswith("server_name"):
+            match = re.match(r"server_name\s+([^;]+);", stripped)
             if match:
                 server_name = match.group(1).strip()
-        elif line.startswith("proxy_pass"):
-            match = re.match(r"proxy_pass\s+([^;]+);", line)
+        elif stripped.startswith("proxy_pass"):
+            match = re.match(r"proxy_pass\s+([^;]+);", stripped)
             if match:
                 proxy_passes.append(match.group(1).strip())
+        elif stripped.startswith("root "):
+            match = re.match(r"root\s+([^;]+);", stripped)
+            if match:
+                root_dir = match.group(1).strip()
+        elif stripped.startswith("listen "):
+            listen_ports.append(stripped)
 
-    if not proxy_passes:
+    # Skip redirect-only blocks (listen 80 with return 301/404)
+    has_ssl = any("443" in p for p in listen_ports)
+    is_redirect = not has_ssl and any("80" in p for p in listen_ports) and not proxy_passes and not root_dir
+
+    if is_redirect:
         return []
-    return [(server_name or "", proxy) for proxy in proxy_passes]
+
+    if proxy_passes:
+        return [(server_name or "", proxy, None, None) for proxy in proxy_passes]
+
+    if root_dir:
+        return [(server_name or "", "folder", "static", root_dir)]
+
+    return []
 
 def extract_port(url):
     try:
@@ -115,13 +134,17 @@ def main():
         all_entries.extend(process_file(file_path))
 
     enriched = []
-    for name, location in all_entries:
-        port = extract_port(location)
-        if port:
-            process_type, cwd = get_process_info_for_port(port)
+    for name, location, static_type, static_cwd in all_entries:
+        if static_type is not None:
+            # Static/folder entry — no port lookup needed
+            enriched.append((name, location, None, static_type, static_cwd))
         else:
-            process_type, cwd = 'none', 'none'
-        enriched.append((name, location, port, process_type, cwd))
+            port = extract_port(location)
+            if port:
+                process_type, cwd = get_process_info_for_port(port)
+            else:
+                process_type, cwd = 'none', 'none'
+            enriched.append((name, location, port, process_type, cwd))
 
     # Sort by port
     enriched.sort(key=lambda x: x[2] if x[2] is not None else 99999)
