@@ -71,7 +71,7 @@ cat <<EOF > "$config_file"
 server {
     listen 80;
     server_name $subdomain;
-
+    client_max_body_size 100M;
     location / {
         proxy_pass http://$host:$port;
         proxy_set_header X-Real-IP \$remote_addr;
