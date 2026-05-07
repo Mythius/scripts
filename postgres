@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+
+import subprocess
+import secrets
+import string
+import sys
+
+BOLD = "\033[1m"
+CYAN = "\033[96m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+RESET = "\033[0m"
+
+def header(text):
+    print(f"\n{BOLD}{CYAN}=== {text} ==={RESET}")
+
+def success(text):
+    print(f"{GREEN}✓ {text}{RESET}")
+
+def warn(text):
+    print(f"{YELLOW}! {text}{RESET}")
+
+def error(text):
+    print(f"{RED}✗ {text}{RESET}")
+
+def run_psql(sql, dbname="postgres"):
+    result = subprocess.run(
+        ["sudo", "-u", "postgres", "psql", "-d", dbname, "-t", "-A", "-c", sql],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip())
+    return result.stdout.strip()
+
+def run_psql_commands(commands, dbname="postgres"):
+    joined = "\n".join(commands)
+    result = subprocess.run(
+        ["sudo", "-u", "postgres", "psql", "-d", dbname, "-t", "-A", "-c", joined],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip())
+    return result.stdout.strip()
+
+def gen_password(length=24):
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+def prompt(text, default=None):
+    suffix = f" [{default}]" if default else ""
+    val = input(f"{BOLD}{text}{suffix}: {RESET}").strip()
+    return val if val else default
+
+def choose(text, options):
+    print(f"\n{BOLD}{text}{RESET}")
+    for i, opt in enumerate(options, 1):
+        print(f"  {i}) {opt}")
+    while True:
+        raw = input(f"Choice [1-{len(options)}]: ").strip()
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return int(raw) - 1
+        warn("Invalid choice, try again.")
+
+def list_databases():
+    header("Databases")
+    try:
+        out = run_psql(
+            "SELECT datname, pg_catalog.pg_get_userbyid(datdba) AS owner, "
+            "pg_size_pretty(pg_database_size(datname)) AS size "
+            "FROM pg_database WHERE datistemplate = false ORDER BY datname;"
+        )
+        print(f"\n{'NAME':<30} {'OWNER':<20} {'SIZE'}")
+        print("-" * 60)
+        for line in out.splitlines():
+            parts = line.split("|")
+            if len(parts) == 3:
+                print(f"{parts[0]:<30} {parts[1]:<20} {parts[2]}")
+    except RuntimeError as e:
+        error(f"Failed to list databases: {e}")
+
+def list_users():
+    header("Users / Roles")
+    try:
+        out = run_psql(
+            "SELECT rolname, rolsuper, rolcreatedb, rolcanlogin "
+            "FROM pg_roles WHERE rolname NOT LIKE 'pg_%' ORDER BY rolname;"
+        )
+        print(f"\n{'NAME':<30} {'SUPERUSER':<12} {'CREATEDB':<12} {'LOGIN'}")
+        print("-" * 65)
+        for line in out.splitlines():
+            parts = line.split("|")
+            if len(parts) == 4:
+                def fmt(v): return "yes" if v == "t" else "no"
+                print(f"{parts[0]:<30} {fmt(parts[1]):<12} {fmt(parts[2]):<12} {fmt(parts[3])}")
+    except RuntimeError as e:
+        error(f"Failed to list users: {e}")
+
+def get_databases():
+    out = run_psql(
+        "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;"
+    )
+    return [l.strip() for l in out.splitlines() if l.strip()]
+
+def create_database():
+    header("Create Database")
+    dbname = prompt("Database name")
+    if not dbname:
+        warn("Aborted.")
+        return
+
+    try:
+        run_psql(f'CREATE DATABASE "{dbname}";')
+        success(f"Database '{dbname}' created.")
+    except RuntimeError as e:
+        error(f"Failed: {e}")
+
+def create_user():
+    header("Create User")
+    username = prompt("Username")
+    if not username:
+        warn("Aborted.")
+        return
+
+    role_idx = choose(
+        "User role:",
+        [
+            "Admin (superuser with full system access)",
+            "DB owner (all privileges on one database)",
+            "Read-only (SELECT only on one database)",
+        ]
+    )
+
+    # Password
+    auto_pass = gen_password()
+    use_auto = prompt("Auto-generate a secure password? (y/n)", "y").lower()
+    if use_auto == "y":
+        password = auto_pass
+    else:
+        import getpass
+        password = getpass.getpass("Password: ")
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            error("Passwords do not match.")
+            return
+
+    try:
+        if role_idx == 0:
+            # Admin / superuser
+            run_psql(
+                f"CREATE USER \"{username}\" WITH PASSWORD '{password}' SUPERUSER CREATEDB CREATEROLE;"
+            )
+            success(f"Admin user '{username}' created.")
+            print(f"\n{BOLD}Connection string (postgres DB):{RESET}")
+            print(f"  {GREEN}DATABASE_URL=postgresql://{username}:{password}@localhost:5432/postgres{RESET}")
+
+        else:
+            # Need to pick a target database
+            databases = get_databases()
+            if not databases:
+                error("No databases found. Create one first.")
+                return
+            db_idx = choose("Select target database:", databases)
+            dbname = databases[db_idx]
+
+            run_psql(
+                f"CREATE USER \"{username}\" WITH PASSWORD '{password}';"
+            )
+
+            if role_idx == 1:
+                # DB owner — all privileges
+                cmds = [
+                    f'GRANT ALL PRIVILEGES ON DATABASE "{dbname}" TO "{username}";',
+                    f'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "{username}";',
+                    f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "{username}";',
+                    f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "{username}";',
+                    f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "{username}";',
+                ]
+                for cmd in cmds:
+                    run_psql(cmd, dbname=dbname)
+                success(f"User '{username}' created with full access to '{dbname}'.")
+
+            else:
+                # Read-only
+                cmds = [
+                    f'GRANT CONNECT ON DATABASE "{dbname}" TO "{username}";',
+                    f'GRANT USAGE ON SCHEMA public TO "{username}";',
+                    f'GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{username}";',
+                    f'GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO "{username}";',
+                    f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO "{username}";',
+                    f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON SEQUENCES TO "{username}";',
+                ]
+                for cmd in cmds:
+                    run_psql(cmd, dbname=dbname)
+                success(f"User '{username}' created with read-only access to '{dbname}'.")
+
+            print(f"\n{BOLD}Connection string:{RESET}")
+            print(f"  {GREEN}DATABASE_URL=postgresql://{username}:{password}@localhost:5432/{dbname}{RESET}")
+
+        if use_auto == "y":
+            print(f"\n{BOLD}Password (save this now):{RESET} {YELLOW}{password}{RESET}")
+
+    except RuntimeError as e:
+        error(f"Failed: {e}")
+
+def get_users():
+    out = run_psql(
+        "SELECT rolname FROM pg_roles WHERE rolcanlogin AND rolname NOT LIKE 'pg_%' ORDER BY rolname;"
+    )
+    return [l.strip() for l in out.splitlines() if l.strip()]
+
+def reset_password():
+    header("Reset User Password")
+    try:
+        users = get_users()
+    except RuntimeError as e:
+        error(f"Failed to fetch users: {e}")
+        return
+
+    if not users:
+        error("No login users found.")
+        return
+
+    user_idx = choose("Select user:", users)
+    username = users[user_idx]
+
+    use_auto = prompt("Auto-generate a secure password? (y/n)", "y").lower()
+    if use_auto == "y":
+        password = gen_password()
+    else:
+        import getpass
+        password = getpass.getpass("New password: ")
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            error("Passwords do not match.")
+            return
+
+    try:
+        run_psql(f"ALTER USER \"{username}\" WITH PASSWORD '{password}';")
+        success(f"Password updated for '{username}'.")
+    except RuntimeError as e:
+        error(f"Failed: {e}")
+        return
+
+    if use_auto == "y":
+        print(f"\n{BOLD}New password (save this now):{RESET} {YELLOW}{password}{RESET}")
+
+    # Ask which DB to build the connection string for
+    try:
+        databases = get_databases()
+    except RuntimeError as e:
+        error(f"Could not fetch databases: {e}")
+        return
+
+    if not databases:
+        return
+
+    db_idx = choose("Select database for connection string:", databases)
+    dbname = databases[db_idx]
+    host = prompt("Host", "localhost")
+    port = prompt("Port", "5432")
+
+    print(f"\n{BOLD}Connection string:{RESET}")
+    print(f"  {GREEN}DATABASE_URL=postgresql://{username}:{password}@{host}:{port}/{dbname}{RESET}")
+
+def drop_user():
+    header("Drop User")
+    username = prompt("Username to drop")
+    if not username:
+        warn("Aborted.")
+        return
+    confirm = prompt(f"Type '{username}' again to confirm deletion")
+    if confirm != username:
+        warn("Aborted.")
+        return
+    try:
+        run_psql(f'DROP USER IF EXISTS "{username}";')
+        success(f"User '{username}' dropped.")
+    except RuntimeError as e:
+        error(f"Failed: {e}")
+
+def drop_database():
+    header("Drop Database")
+    databases = get_databases()
+    if not databases:
+        error("No databases found.")
+        return
+    db_idx = choose("Select database to drop:", databases)
+    dbname = databases[db_idx]
+    confirm = prompt(f"Type '{dbname}' to confirm permanent deletion")
+    if confirm != dbname:
+        warn("Aborted.")
+        return
+    try:
+        run_psql(f'DROP DATABASE IF EXISTS "{dbname}";')
+        success(f"Database '{dbname}' dropped.")
+    except RuntimeError as e:
+        error(f"Failed: {e}")
+
+def show_connection_string():
+    header("Get Connection String")
+    databases = get_databases()
+    if not databases:
+        error("No databases found.")
+        return
+    db_idx = choose("Select database:", databases)
+    dbname = databases[db_idx]
+
+    username = prompt("Username")
+    password = prompt("Password (leave blank to omit)")
+
+    host = prompt("Host", "localhost")
+    port = prompt("Port", "5432")
+
+    if password:
+        conn = f"postgresql://{username}:{password}@{host}:{port}/{dbname}"
+    else:
+        conn = f"postgresql://{username}@{host}:{port}/{dbname}"
+
+    print(f"\n{BOLD}Connection string:{RESET}")
+    print(f"  {GREEN}DATABASE_URL={conn}{RESET}")
+
+def main():
+    print(f"{BOLD}{CYAN}PostgreSQL Manager{RESET}")
+
+    actions = [
+        ("List databases",         list_databases),
+        ("List users",             list_users),
+        ("Create database",        create_database),
+        ("Create user",            create_user),
+        ("Get connection string",  show_connection_string),
+        ("Reset user password",    reset_password),
+        ("Drop user",              drop_user),
+        ("Drop database",          drop_database),
+        ("Quit",                   None),
+    ]
+
+    while True:
+        print()
+        idx = choose("What would you like to do?", [a[0] for a in actions])
+        fn = actions[idx][1]
+        if fn is None:
+            print("Bye.")
+            break
+        fn()
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nBye.")
+        sys.exit(0)
