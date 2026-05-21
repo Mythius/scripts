@@ -15,9 +15,7 @@ def format_size(bytes_num):
     return f"{bytes_num:.0f}PB"
 
 def get_biggest_disk_usage():
-    partitions = [p for p in psutil.disk_partitions(all=False) if os.path.ismount(p.mountpoint)]
-    biggest = max(partitions, key=lambda p: shutil.disk_usage(p.mountpoint).total)
-    usage = shutil.disk_usage(biggest.mountpoint)
+    usage = shutil.disk_usage("/")
     used = usage.used
     total = usage.total
     percent = used / total * 100
@@ -25,7 +23,7 @@ def get_biggest_disk_usage():
         "used": used,
         "total": total,
         "percent": percent,
-        "mountpoint": biggest.mountpoint
+        "mountpoint": "/"
     }
 
 def get_ram_usage():
