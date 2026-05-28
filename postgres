@@ -171,6 +171,7 @@ def create_user():
                 # DB owner — all privileges
                 cmds = [
                     f'GRANT ALL PRIVILEGES ON DATABASE "{dbname}" TO "{username}";',
+                    f'GRANT USAGE, CREATE ON SCHEMA public TO "{username}";',
                     f'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "{username}";',
                     f'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "{username}";',
                     f'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "{username}";',
