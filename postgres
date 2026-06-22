@@ -44,7 +44,7 @@ def run_psql_commands(commands, dbname="postgres"):
     return result.stdout.strip()
 
 def gen_password(length=24):
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    alphabet = string.ascii_letters + string.digits + "!%^&*"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 def prompt(text, default=None):
